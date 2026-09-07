@@ -1,0 +1,39 @@
+# PRs by repo
+
+Embeddable SVG pie chart of any GitHub user's pull requests, grouped by repo.
+
+```markdown
+[![PRs by repo](https://YOUR-DEPLOY.vercel.app/api/pie?username=octocat&range=1y)](https://github.com/octocat)
+```
+
+Counts the last year by default; the card's caption always states the window it used.
+
+Public PRs only (`is:public`), even when the deploy's token could see more — otherwise a
+card would leak private repo names to anyone who loads the image.
+
+| Param | Default | Notes |
+|---|---|---|
+| `username` | — | required |
+| `range` | `1y` | window to count over — `30d`, `6m`, `2y`, or `all` |
+| `limit` | `6` | top N repos, 1–10; the rest collapse into one grey "N more repos" slice |
+| `theme` | `light` | `light` or `dark` |
+| `title` | `<user>'s PRs by repo` | |
+
+`index.html` is a preview page that builds the embed snippet for you.
+
+## Deploy
+
+```sh
+vercel deploy --prod
+vercel env add GITHUB_TOKEN     # classic PAT, no scopes needed — public data only
+```
+
+The token is only for rate limits — without it you share the anonymous 60 req/hr pool and
+a public deploy rate-limits almost immediately. Responses are cached 2h
+(`s-maxage`), and GitHub's camo proxy caches on top of that.
+
+## Test
+
+```sh
+node test.js     # hits the live API, writes $TMPDIR/pr-pie.svg
+```

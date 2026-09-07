@@ -1,0 +1,46 @@
+<!doctype html>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>PRs by repo</title>
+<style>
+  body { font: 15px system-ui, sans-serif; margin: 2rem auto; max-width: 560px; padding: 0 1rem; }
+  form { display: flex; gap: .5rem; flex-wrap: wrap; align-items: center; }
+  input, select, button { padding: .5rem; font: inherit; }
+  #user { flex: 1; min-width: 12rem; }
+  img { display: block; margin: 1.5rem 0; max-width: 100%; }
+  textarea { width: 100%; height: 4.5rem; font: 13px ui-monospace, monospace; padding: .5rem; }
+</style>
+
+<h1>PRs by repo</h1>
+<p>Embeddable pie chart of a GitHub user's pull requests, grouped by repo.</p>
+
+<form id="f">
+  <input id="user" placeholder="github username" autofocus>
+  <select id="theme"><option>light</option><option>dark</option></select>
+  <select id="limit"><option>4</option><option selected>6</option><option>8</option><option>10</option></select>
+  <select id="range">
+    <option value="30d">last 30 days</option>
+    <option value="6m">last 6 months</option>
+    <option value="1y" selected>last year</option>
+    <option value="all">all time</option>
+  </select>
+  <button>Preview</button>
+</form>
+
+<img id="preview" alt="" hidden>
+<textarea id="snippet" readonly hidden></textarea>
+
+<script>
+f.onsubmit = e => {
+  e.preventDefault();
+  const name = user.value.trim();
+  if (!/^[A-Za-z0-9][A-Za-z0-9-]{0,38}$/.test(name)) return alert('Enter a valid GitHub username.');
+  const url = `${location.origin}/api/pie?username=${name}&theme=${theme.value}&range=${range.value}&limit=${limit.value}`;
+  preview.src = url;
+  snippet.value = `[![PRs by repo](${url})](https://github.com/${name})`;
+  preview.hidden = snippet.hidden = false;
+  history.replaceState({}, '', `?user=${name}`);
+};
+const preset = new URLSearchParams(location.search).get('user');
+if (preset) { user.value = preset; f.requestSubmit(); }
+</script>
