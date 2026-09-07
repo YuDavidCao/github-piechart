@@ -32,6 +32,13 @@ const inside = svg => {
   const sum = pcts.reduce((a, b) => a + b, 0);
   assert.ok(Math.abs(sum - 100) < 0.5, `slices must cover the pie, got ${sum}%`);
   inside(ok.body);
+  // every slice in a big chart gets its own colour
+  const big = await call('/api/pie?username=anuraghazra&range=all&limit=20');
+  const fills = [...big.body.matchAll(/<(?:path|circle)[^>]*fill="([^"]+)"/g)].map(m => m[1]);
+  assert.ok(fills.length >= 15, `expected a crowded pie, got ${fills.length} slices`);
+  assert.strictEqual(new Set(fills).size, fills.length, 'two slices share a colour');
+  inside(big.body);
+
   // a token must never pull private repo names into the repo breakdown
   process.env.GITHUB_TOKEN = process.env.GITHUB_TOKEN || require('child_process').execSync('gh auth token').toString().trim();
   const tokened = await call('/api/pie?username=YuDavidCao&range=all&limit=10');

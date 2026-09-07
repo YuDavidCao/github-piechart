@@ -1,5 +1,7 @@
 // GET /api/pie?username=octocat[&limit=6][&theme=dark][&range=1y][&title=...] -> SVG pie of PRs per repo.
-const COLORS = ['#7c4dff','#e53935','#1e88e5','#43a047','#fb8c00','#00acc1','#d81b60','#8d6e63','#546e7a','#c0ca33'];
+// Golden-angle hue rotation: any number of slices, adjacent ones always far apart in hue.
+// Lightness alternates so colours that eventually wrap near the same hue still separate.
+const sliceColor = i => `hsl(${((200 + i * 137.508) % 360).toFixed(1)}, 68%, ${i % 2 ? 45 : 58}%)`;
 const THEMES = {
   light: { bg: '#ffffff', border: '#d0d7de', text: '#1f2328', dim: '#656d76' },
   dark:  { bg: '#0d1117', border: '#30363d', text: '#e6edf3', dim: '#8b949e' },
@@ -58,13 +60,13 @@ async function prsByRepo(user, since) {
   return [...counts].sort((a, b) => b[1] - a[1]);
 }
 
-function slice(from, to, color) {
-  if (to - from >= 1) return `<circle cx="${CX}" cy="${CY}" r="${R}" fill="${color}"/>`;
+function slice(from, to, color, cy) {
+  if (to - from >= 1) return `<circle cx="${CX}" cy="${cy}" r="${R}" fill="${color}"/>`;
   const pt = f => {
     const a = 2 * Math.PI * f - Math.PI / 2;
-    return `${(CX + R * Math.cos(a)).toFixed(2)} ${(CY + R * Math.sin(a)).toFixed(2)}`;
+    return `${(CX + R * Math.cos(a)).toFixed(2)} ${(cy + R * Math.sin(a)).toFixed(2)}`;
   };
-  return `<path d="M ${CX} ${CY} L ${pt(from)} A ${R} ${R} 0 ${to - from > 0.5 ? 1 : 0} 1 ${pt(to)} Z" fill="${color}"/>`;
+  return `<path d="M ${CX} ${cy} L ${pt(from)} A ${R} ${R} 0 ${to - from > 0.5 ? 1 : 0} 1 ${pt(to)} Z" fill="${color}"/>`;
 }
 
 function card(body, height, t) {
@@ -80,12 +82,14 @@ function errorCard(msg, t) {
 }
 
 function chart(rows, total, caption, title, t) {
+  const height = Math.max(240, 70 + rows.length * ROW_H + 20);
+  const cy = Math.max(CY, height / 2 - 10); // keep the pie beside the legend, not stranded at the top
   let at = 0;
-  const color = (row, i) => row[2] || COLORS[i % COLORS.length];
+  const color = (row, i) => row[2] || sliceColor(i);
   const slices = rows.map((row, i) => {
     const from = at;
     at += row[1] / total;
-    return slice(from, at, color(row, i));
+    return slice(from, at, color(row, i), cy);
   }).join('\n');
   const legend = rows.map((row, i) => {
     const [repo, n] = row;
@@ -94,17 +98,16 @@ function chart(rows, total, caption, title, t) {
 <text x="${LEGEND_X + 20}" y="${y}" font-size="12" fill="${t.text}">${esc(clip(repo, 22))}</text>
 <text x="${W - 20}" y="${y}" font-size="12" text-anchor="end" fill="${t.dim}">${(n / total * 100).toFixed(1)}%</text>`;
   }).join('\n');
-  const height = Math.max(240, 70 + rows.length * ROW_H + 20);
   return card(`<text x="20" y="34" font-size="15" font-weight="600" fill="${t.text}">${esc(title)}</text>
 ${slices}
-<text x="${CX}" y="${CY + R + 20}" font-size="11" text-anchor="middle" fill="${t.dim}">${esc(caption)}</text>
+<text x="${CX}" y="${cy + R + 20}" font-size="11" text-anchor="middle" fill="${t.dim}">${esc(caption)}</text>
 ${legend}`, height, t);
 }
 
 module.exports = async (req, res) => {
   const { searchParams } = new URL(req.url, 'http://x');
   const user = (searchParams.get('username') || searchParams.get('user') || '').trim();
-  const limit = Math.min(Math.max(parseInt(searchParams.get('limit'), 10) || 6, 1), 10);
+  const limit = Math.min(Math.max(parseInt(searchParams.get('limit'), 10) || 6, 1), 20);
   const t = THEMES[searchParams.get('theme')] || THEMES.light;
   const range = parseRange(searchParams.get('range'));
   res.setHeader('content-type', 'image/svg+xml; charset=utf-8');
