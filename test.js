@@ -3,11 +3,10 @@ const assert = require('assert');
 const handler = require('./api/pie.js');
 
 const call = url => new Promise(done => {
-  let headers = {};
+  const headers = {};
   handler({ url }, {
     setHeader: (k, v) => (headers[k] = v),
-    status(code) { this.code = code; return this; },
-    send(body) { done({ code: this.code, headers, body }); },
+    end: body => done({ headers, body }),
   });
 });
 

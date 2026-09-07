@@ -114,11 +114,11 @@ module.exports = async (req, res) => {
 
   if (!/^[A-Za-z0-9](?:[A-Za-z0-9-]{0,38})$/.test(user)) {
     res.setHeader('cache-control', 'no-cache');
-    return res.status(200).send(errorCard('Pass ?username=<github-user>', t));
+    return res.end(errorCard('Pass ?username=<github-user>', t));
   }
   if (!range) {
     res.setHeader('cache-control', 'no-cache');
-    return res.status(200).send(errorCard('range must look like 30d, 6m, 2y or all', t));
+    return res.end(errorCard('range must look like 30d, 6m, 2y or all', t));
   }
   try {
     const all = await prsByRepo(user, range.since);
@@ -129,9 +129,9 @@ module.exports = async (req, res) => {
     if (rest.length) top.push([`${rest.length} more repos`, rest.reduce((s, [, n]) => s + n, 0), t.dim]);
     const caption = `${total} PRs · ${range.label}`;
     res.setHeader('cache-control', 'public, max-age=7200, s-maxage=7200');
-    res.status(200).send(chart(top, total, caption, searchParams.get('title') || `${user}'s PRs by repo`, t));
+    res.end(chart(top, total, caption, searchParams.get('title') || `${user}'s PRs by repo`, t));
   } catch (e) {
     res.setHeader('cache-control', 'public, max-age=60');
-    res.status(200).send(errorCard(e.message, t));
+    res.end(errorCard(e.message, t));
   }
 };

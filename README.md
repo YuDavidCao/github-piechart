@@ -35,6 +35,14 @@ The token is only for rate limits — without it you share the anonymous 60 req/
 a public deploy rate-limits almost immediately. Responses are cached 2h
 (`s-maxage`), and GitHub's camo proxy caches on top of that.
 
+## Local preview
+
+```sh
+GITHUB_TOKEN=$(gh auth token) node dev.js   # http://localhost:3000
+```
+
+Serves `index.html` plus a live `/api/pie`, so you can try a card before deploying.
+
 ## Test
 
 ```sh

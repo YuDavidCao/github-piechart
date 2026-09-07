@@ -1,46 +1,193 @@
 <!doctype html>
+<html lang="en">
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <title>PRs by repo</title>
 <style>
-  body { font: 15px system-ui, sans-serif; margin: 2rem auto; max-width: 560px; padding: 0 1rem; }
-  form { display: flex; gap: .5rem; flex-wrap: wrap; align-items: center; }
-  input, select, button { padding: .5rem; font: inherit; }
-  #user { flex: 1; min-width: 12rem; }
-  img { display: block; margin: 1.5rem 0; max-width: 100%; }
-  textarea { width: 100%; height: 4.5rem; font: 13px ui-monospace, monospace; padding: .5rem; }
+  :root {
+    --accent: hsl(200, 68%, 45%);
+    --bg: #f6f8fa; --panel: #fff; --ink: #1f2328; --dim: #656d76; --line: #d0d7de;
+    --field: #fff; --shadow: 0 1px 3px rgba(31, 35, 40, .08);
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --accent: hsl(200, 68%, 58%);
+      --bg: #010409; --panel: #0d1117; --ink: #e6edf3; --dim: #8b949e; --line: #30363d;
+      --field: #161b22; --shadow: none;
+    }
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; padding: 3rem 1rem 4rem; background: var(--bg); color: var(--ink);
+    font: 15px/1.5 -apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif;
+  }
+  main { max-width: 620px; margin: 0 auto; }
+  h1 { font-size: 1.6rem; margin: 0 0 .35rem; letter-spacing: -.02em; }
+  .lede { color: var(--dim); margin: 0 0 2rem; }
+  .panel { background: var(--panel); border: 1px solid var(--line); border-radius: 10px; box-shadow: var(--shadow); }
+
+  form { padding: 1.1rem; display: grid; gap: .9rem; grid-template-columns: repeat(3, 1fr); }
+  .field { display: grid; gap: .35rem; }
+  .field.wide { grid-column: 1 / -1; }
+  label { font-size: .75rem; font-weight: 600; letter-spacing: .04em; text-transform: uppercase; color: var(--dim); }
+  input, select {
+    font: inherit; color: inherit; background: var(--field);
+    border: 1px solid var(--line); border-radius: 6px; padding: .5rem .6rem; width: 100%;
+  }
+  input:focus-visible, select:focus-visible, button:focus-visible {
+    outline: 2px solid var(--accent); outline-offset: 1px;
+  }
+  button {
+    font: inherit; font-weight: 600; cursor: pointer; border-radius: 6px;
+    border: 1px solid var(--line); background: var(--field); color: inherit; padding: .5rem .8rem;
+  }
+  button.primary { background: var(--accent); border-color: transparent; color: #fff; }
+  button:hover { filter: brightness(1.06); }
+
+  .out { margin-top: 1.25rem; padding: 1.1rem; display: grid; gap: .9rem; }
+  .card-slot { display: grid; place-items: center; min-height: 240px; }
+  .card-slot img { max-width: 100%; border-radius: 8px; transition: opacity .15s; }
+  .card-slot.busy img { opacity: .45; }
+  .empty { color: var(--dim); font-size: .9rem; text-align: center; }
+
+  .snippet { display: grid; gap: .5rem; }
+  .snippet-head { display: flex; align-items: center; gap: .4rem; }
+  .tabs { display: flex; gap: .25rem; margin-right: auto; }
+  .tab { padding: .25rem .6rem; font-size: .82rem; font-weight: 500; border-radius: 999px; border: 1px solid transparent; background: none; color: var(--dim); }
+  .tab[aria-selected="true"] { background: var(--field); border-color: var(--line); color: var(--ink); }
+  code.snip {
+    display: block; background: var(--field); border: 1px solid var(--line); border-radius: 6px;
+    padding: .6rem .7rem; font: 12.5px/1.6 ui-monospace, SFMono-Regular, Menlo, monospace;
+    overflow-x: auto; white-space: pre; user-select: all;
+  }
+  footer { margin-top: 1.5rem; color: var(--dim); font-size: .85rem; text-align: center; }
+  a { color: var(--accent); }
+  @media (max-width: 480px) { form { grid-template-columns: 1fr 1fr; } }
 </style>
 
-<h1>PRs by repo</h1>
-<p>Embeddable pie chart of a GitHub user's pull requests, grouped by repo.</p>
+<main>
+  <h1>PRs by repo</h1>
+  <p class="lede">A pie chart of a GitHub user's pull requests, grouped by repo — as an image you can drop in a README.</p>
 
-<form id="f">
-  <input id="user" placeholder="github username" autofocus>
-  <select id="theme"><option>light</option><option>dark</option></select>
-  <select id="limit"><option>4</option><option selected>6</option><option>8</option><option>10</option><option>15</option><option>20</option></select>
-  <select id="range">
-    <option value="30d">last 30 days</option>
-    <option value="6m">last 6 months</option>
-    <option value="1y" selected>last year</option>
-    <option value="all">all time</option>
-  </select>
-  <button>Preview</button>
-</form>
+  <div class="panel">
+    <form id="f">
+      <div class="field wide">
+        <label for="user">GitHub username</label>
+        <input id="user" name="user" placeholder="octocat" autocomplete="off" spellcheck="false" autofocus
+               pattern="[A-Za-z0-9][A-Za-z0-9-]{0,38}" required>
+      </div>
+      <div class="field">
+        <label for="range">Time range</label>
+        <select id="range">
+          <option value="30d">Last 30 days</option>
+          <option value="6m">Last 6 months</option>
+          <option value="1y" selected>Last year</option>
+          <option value="all">All time</option>
+        </select>
+      </div>
+      <div class="field">
+        <label for="limit">Repos shown</label>
+        <select id="limit">
+          <option>4</option><option selected>6</option><option>8</option>
+          <option>10</option><option>15</option><option>20</option>
+        </select>
+      </div>
+      <div class="field">
+        <label for="theme">Theme</label>
+        <select id="theme"><option value="light">Light</option><option value="dark">Dark</option></select>
+      </div>
+      <div class="field wide"><button class="primary" type="submit">Render chart</button></div>
+    </form>
+  </div>
 
-<img id="preview" alt="" hidden>
-<textarea id="snippet" readonly hidden></textarea>
+  <div class="panel out">
+    <div class="card-slot" id="slot"><p class="empty" id="empty">Enter a username to see the card.</p></div>
+    <div class="snippet" id="snippet" hidden>
+      <div class="snippet-head">
+        <div class="tabs" role="tablist">
+          <button class="tab" type="button" role="tab" data-fmt="md" aria-selected="true">Markdown</button>
+          <button class="tab" type="button" role="tab" data-fmt="html" aria-selected="false">HTML</button>
+        </div>
+        <button type="button" id="copy">Copy</button>
+      </div>
+      <code class="snip" id="snip"></code>
+    </div>
+  </div>
+
+  <p class="empty" id="status" role="status" aria-live="polite"></p>
+  <footer>Cards are cached for 2 hours, so edits to a README image can take a moment to refresh.</footer>
+</main>
 
 <script>
-f.onsubmit = e => {
-  e.preventDefault();
-  const name = user.value.trim();
-  if (!/^[A-Za-z0-9][A-Za-z0-9-]{0,38}$/.test(name)) return alert('Enter a valid GitHub username.');
-  const url = `${location.origin}/api/pie?username=${name}&theme=${theme.value}&range=${range.value}&limit=${limit.value}`;
-  preview.src = url;
-  snippet.value = `[![PRs by repo](${url})](https://github.com/${name})`;
-  preview.hidden = snippet.hidden = false;
-  history.replaceState({}, '', `?user=${name}`);
+const $ = id => document.getElementById(id);
+const img = Object.assign(new Image(), { alt: 'PRs by repo chart' });
+let fmt = 'md', current = '';
+
+const store = {
+  get: k => { try { return localStorage.getItem(k); } catch { return null; } },
+  set: (k, v) => { try { localStorage.setItem(k, v); } catch { /* private mode */ } },
 };
-const preset = new URLSearchParams(location.search).get('user');
-if (preset) { user.value = preset; f.requestSubmit(); }
+
+const buildUrl = name =>
+  `${location.origin}/api/pie?username=${name}&range=${$('range').value}` +
+  `&limit=${$('limit').value}&theme=${$('theme').value}`;
+
+const snippetFor = (name, url) => fmt === 'md'
+  ? `[![PRs by repo](${url})](https://github.com/${name})`
+  : `<a href="https://github.com/${name}"><img src="${url}" alt="PRs by repo"></a>`;
+
+function render() {
+  const name = $('user').value.trim();
+  if (!/^[A-Za-z0-9][A-Za-z0-9-]{0,38}$/.test(name)) {
+    $('status').textContent = 'That is not a valid GitHub username.';
+    return;
+  }
+  const url = current = buildUrl(name);
+  $('status').textContent = '';
+  $('slot').classList.add('busy');
+  if (!img.parentNode) $('slot').replaceChildren(img);
+  img.onload = () => $('slot').classList.remove('busy');
+  img.onerror = () => {
+    $('slot').classList.remove('busy');
+    $('status').textContent = 'Could not reach /api/pie — is the function deployed?';
+  };
+  img.src = url;
+
+  $('snip').textContent = snippetFor(name, url);
+  $('snippet').hidden = false;
+  store.set('user', name);
+  history.replaceState({}, '', `?user=${name}&range=${$('range').value}&limit=${$('limit').value}&theme=${$('theme').value}`);
+}
+
+$('f').onsubmit = e => { e.preventDefault(); render(); };
+// Re-render on option changes, but only once a username is on screen — no wasted API calls.
+for (const id of ['range', 'limit', 'theme']) $(id).onchange = () => current && render();
+
+document.querySelectorAll('.tab').forEach(tab => {
+  tab.onclick = () => {
+    fmt = tab.dataset.fmt;
+    document.querySelectorAll('.tab').forEach(t => t.setAttribute('aria-selected', String(t === tab)));
+    if (current) $('snip').textContent = snippetFor($('user').value.trim(), current);
+  };
+});
+
+$('copy').onclick = async () => {
+  const text = $('snip').textContent;
+  try {
+    await navigator.clipboard.writeText(text);
+  } catch {
+    const sel = getSelection(), r = document.createRange();
+    r.selectNodeContents($('snip')); sel.removeAllRanges(); sel.addRange(r);
+    $('status').textContent = 'Press ⌘C / Ctrl+C to copy.';
+    return;
+  }
+  $('copy').textContent = 'Copied';
+  setTimeout(() => ($('copy').textContent = 'Copy'), 1400);
+};
+
+// Restore from the URL first, then from the last visit.
+const q = new URLSearchParams(location.search);
+for (const id of ['range', 'limit', 'theme']) if (q.get(id)) $(id).value = q.get(id);
+$('user').value = q.get('user') || store.get('user') || '';
+if ($('user').value) render();
 </script>
