@@ -8,12 +8,15 @@ Embeddable SVG pie chart of any GitHub user's pull requests, grouped by repo.
 
 Counts the last year by default; the card's caption always states the window it used.
 
-Public PRs only (`is:public`), even when the deploy's token could see more — otherwise a
-card would leak private repo names to anyone who loads the image.
+Counts come from GraphQL `contributionsCollection`: exact per-repo totals in one request per
+year of range, costing a single rate-limit point each (5000/hour). Private repos are absent
+from those breakdowns, and any that appeared would be dropped — a public card must never
+name one.
 
 | Param | Default | Notes |
 |---|---|---|
 | `username` | — | required |
+| `by` | `pr` | what to count — `pr`, `commit`, `issue`, `review`, or `all` |
 | `range` | `1y` | window to count over — `30d`, `6m`, `2y`, or `all` |
 | `limit` | `6` | top N repos, 1–20; the rest collapse into one grey "N more repos" slice |
 | `theme` | `light` | `light` or `dark` |
@@ -29,10 +32,11 @@ well-separated colours without maintaining a palette.
 ```sh
 vercel deploy --prod
 vercel env add GITHUB_TOKEN     # classic PAT, no scopes needed — public data only
+vercel --prod                   # env vars only reach NEW deployments
 ```
 
-The token is only for rate limits — without it you share the anonymous 60 req/hr pool and
-a public deploy rate-limits almost immediately. Responses are cached 2h
+`GITHUB_TOKEN` is **required** — GitHub's GraphQL API rejects anonymous requests. Without it
+every card renders "This deploy is missing GITHUB_TOKEN". Responses are cached 2h
 (`s-maxage`), and GitHub's camo proxy caches on top of that.
 
 ## Local preview

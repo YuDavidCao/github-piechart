@@ -6,7 +6,20 @@ const THEMES = {
   light: { bg: '#ffffff', border: '#d0d7de', text: '#1f2328', dim: '#656d76' },
   dark:  { bg: '#0d1117', border: '#30363d', text: '#e6edf3', dim: '#8b949e' },
 };
-const W = 480, R = 70, CX = 110, CY = 135, LEGEND_X = 215, ROW_H = 24, MAX_PAGES = 5;
+const KINDS = {
+  commit: 'commitContributionsByRepository',
+  pr: 'pullRequestContributionsByRepository',
+  issue: 'issueContributionsByRepository',
+  review: 'pullRequestReviewContributionsByRepository',
+};
+const MODES = {
+  pr: { kinds: ['pr'], label: 'PRs' },
+  commit: { kinds: ['commit'], label: 'commits' },
+  issue: { kinds: ['issue'], label: 'issues' },
+  review: { kinds: ['review'], label: 'reviews' },
+  all: { kinds: ['commit', 'pr', 'issue', 'review'], label: 'contributions' },
+};
+const W = 480, R = 70, CX = 110, CY = 135, LEGEND_X = 215, ROW_H = 24;
 
 const esc = s => String(s).replace(/[<>&"]/g, c => ({ '<': '&lt;', '>': '&gt;', '&': '&amp;', '"': '&quot;' }[c]));
 const clip = (s, n) => (s.length > n ? s.slice(0, n - 1) + '…' : s);
@@ -27,34 +40,58 @@ function parseRange(raw) {
   return { since, label: `last ${n === 1 ? unit : `${n} ${unit}s`}` };
 }
 
-const auth = () => (process.env.GITHUB_TOKEN ? { authorization: `Bearer ${process.env.GITHUB_TOKEN}` } : {});
+const auth = () => ({ authorization: `Bearer ${process.env.GITHUB_TOKEN}` });
 
-async function search(user, page, since) {
-  // is:public is load-bearing: with GITHUB_TOKEN set, search would otherwise return PRs from
-  // private repos the token can see, leaking their names into a public card.
-  const q = `type:pr author:${user} is:public` + (since ? ` created:>=${since.toISOString().slice(0, 10)}` : '');
-  const url = `https://api.github.com/search/issues?q=${encodeURIComponent(q)}&per_page=100&page=${page}`;
-  const res = await fetch(url, {
-    headers: {
-      accept: 'application/vnd.github+json',
-      'user-agent': 'pr-pie',
-      ...auth(),
-    },
+async function gql(query, variables) {
+  const res = await fetch('https://api.github.com/graphql', {
+    method: 'POST',
+    headers: { 'content-type': 'application/json', 'user-agent': 'pr-pie', ...auth() },
+    body: JSON.stringify({ query, variables }),
   });
-  if (!res.ok) throw new Error(res.status === 403 || res.status === 429 ? 'GitHub rate limit hit' : `GitHub API ${res.status}`);
-  return res.json();
+  if (res.status === 401) throw new Error('GITHUB_TOKEN rejected by GitHub');
+  if (!res.ok) throw new Error(`GitHub GraphQL ${res.status}`);
+  const { data, errors } = await res.json();
+  if (errors && errors.length) throw new Error(errors[0].message);
+  return data;
 }
 
-async function prsByRepo(user, since) {
-  const first = await search(user, 1, since);
-  // ponytail: 500 PR ceiling (5 parallel pages). Raise MAX_PAGES if someone real hits it; GitHub search caps at 1000 anyway.
-  const pages = Math.min(Math.ceil(first.total_count / 100), MAX_PAGES);
-  const rest = await Promise.all(Array.from({ length: pages - 1 }, (_, i) => search(user, i + 2, since)));
+// contributionsCollection accepts at most a 1-year window, so walk the range in 364-day chunks.
+function windows(from) {
+  const now = new Date(), out = [];
+  for (let start = from; start < now; ) {
+    const end = new Date(Math.min(start.getTime() + 364 * DAY, now.getTime()));
+    out.push([start.toISOString(), end.toISOString()]);
+    start = new Date(end.getTime() + 1);
+  }
+  return out;
+}
+
+async function contributionsByRepo(user, since, kinds) {
+  let from = since;
+  if (!from) {
+    const { user: u } = await gql('query($login:String!){ user(login:$login){ createdAt } }', { login: user });
+    if (!u) throw new Error(`No such user: ${user}`);
+    from = new Date(u.createdAt);
+  }
+  const fields = kinds.map(k =>
+    `${KINDS[k]}(maxRepositories:100){ repository{ nameWithOwner isPrivate } contributions{ totalCount } }`).join(' ');
+  const query = `query($login:String!,$from:DateTime!,$to:DateTime!){
+    user(login:$login){ contributionsCollection(from:$from,to:$to){ ${fields} } } }`;
+
+  // One request per window, in parallel: all-time on an old account is ~9 windows and each
+  // costs a single rate-limit point, but serialising them runs into the function timeout.
+  const results = await Promise.all(windows(from).map(([f, t]) =>
+    gql(query, { login: user, from: f, to: t })));
+
   const counts = new Map();
-  for (const { items } of [first, ...rest]) {
-    for (const it of items) {
-      const repo = it.repository_url.split('/').slice(-2).join('/');
-      counts.set(repo, (counts.get(repo) || 0) + 1);
+  for (const r of results) {
+    if (!r.user) throw new Error(`No such user: ${user}`);
+    for (const k of kinds) {
+      for (const node of r.user.contributionsCollection[KINDS[k]]) {
+        if (node.repository.isPrivate) continue; // never name a private repo on a public card
+        const name = node.repository.nameWithOwner;
+        counts.set(name, (counts.get(name) || 0) + node.contributions.totalCount);
+      }
     }
   }
   return [...counts].sort((a, b) => b[1] - a[1]);
@@ -110,26 +147,35 @@ module.exports = async (req, res) => {
   const limit = Math.min(Math.max(parseInt(searchParams.get('limit'), 10) || 6, 1), 20);
   const t = THEMES[searchParams.get('theme')] || THEMES.light;
   const range = parseRange(searchParams.get('range'));
+  const mode = MODES[(searchParams.get('by') || 'pr').toLowerCase()];
   res.setHeader('content-type', 'image/svg+xml; charset=utf-8');
 
   if (!/^[A-Za-z0-9](?:[A-Za-z0-9-]{0,38})$/.test(user)) {
     res.setHeader('cache-control', 'no-cache');
     return res.end(errorCard('Pass ?username=<github-user>', t));
   }
+  if (!mode) {
+    res.setHeader('cache-control', 'no-cache');
+    return res.end(errorCard(`by must be one of ${Object.keys(MODES).join(', ')}`, t));
+  }
+  if (!process.env.GITHUB_TOKEN) {
+    res.setHeader('cache-control', 'no-cache');
+    return res.end(errorCard('This deploy is missing GITHUB_TOKEN', t));
+  }
   if (!range) {
     res.setHeader('cache-control', 'no-cache');
     return res.end(errorCard('range must look like 30d, 6m, 2y or all', t));
   }
   try {
-    const all = await prsByRepo(user, range.since);
-    if (!all.length) throw new Error(`No public PRs for ${user} in the ${range.label}`);
+    const all = await contributionsByRepo(user, range.since, mode.kinds);
+    if (!all.length) throw new Error(`No public ${mode.label} for ${user} in the ${range.label}`);
     const total = all.reduce((s, [, n]) => s + n, 0);
     const top = all.slice(0, limit);
     const rest = all.slice(limit);
     if (rest.length) top.push([`${rest.length} more repos`, rest.reduce((s, [, n]) => s + n, 0), t.dim]);
-    const caption = `${total} PRs · ${range.label}`;
+    const caption = `${total} ${mode.label} · ${range.label}`;
     res.setHeader('cache-control', 'public, max-age=7200, s-maxage=7200');
-    res.end(chart(top, total, caption, searchParams.get('title') || `${user}'s PRs by repo`, t));
+    res.end(chart(top, total, caption, searchParams.get('title') || `${user}'s ${mode.label} by repo`, t));
   } catch (e) {
     res.setHeader('cache-control', 'public, max-age=60');
     res.end(errorCard(e.message, t));

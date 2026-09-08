@@ -26,7 +26,7 @@
   .lede { color: var(--dim); margin: 0 0 2rem; }
   .panel { background: var(--panel); border: 1px solid var(--line); border-radius: 10px; box-shadow: var(--shadow); }
 
-  form { padding: 1.1rem; display: grid; gap: .9rem; grid-template-columns: repeat(3, 1fr); }
+  form { padding: 1.1rem; display: grid; gap: .9rem; grid-template-columns: repeat(2, 1fr); }
   .field { display: grid; gap: .35rem; }
   .field.wide { grid-column: 1 / -1; }
   label { font-size: .75rem; font-weight: 600; letter-spacing: .04em; text-transform: uppercase; color: var(--dim); }
@@ -67,7 +67,7 @@
 
 <main>
   <h1>PRs by repo</h1>
-  <p class="lede">A pie chart of a GitHub user's pull requests, grouped by repo — as an image you can drop in a README.</p>
+  <p class="lede">A pie chart of a GitHub user's contributions, grouped by repo — as an image you can drop in a README.</p>
 
   <div class="panel">
     <form id="f">
@@ -75,6 +75,16 @@
         <label for="user">GitHub username</label>
         <input id="user" name="user" placeholder="octocat" autocomplete="off" spellcheck="false" autofocus
                pattern="[A-Za-z0-9][A-Za-z0-9-]{0,38}" required>
+      </div>
+      <div class="field">
+        <label for="by">Count</label>
+        <select id="by">
+          <option value="pr" selected>Pull requests</option>
+          <option value="commit">Commits</option>
+          <option value="issue">Issues</option>
+          <option value="review">Reviews</option>
+          <option value="all">Everything</option>
+        </select>
       </div>
       <div class="field">
         <label for="range">Time range</label>
@@ -129,7 +139,7 @@ const store = {
 };
 
 const buildUrl = name =>
-  `${location.origin}/api/pie?username=${name}&range=${$('range').value}` +
+  `${location.origin}/api/pie?username=${name}&by=${$('by').value}&range=${$('range').value}` +
   `&limit=${$('limit').value}&theme=${$('theme').value}`;
 
 const snippetFor = (name, url) => fmt === 'md'
@@ -156,12 +166,13 @@ function render() {
   $('snip').textContent = snippetFor(name, url);
   $('snippet').hidden = false;
   store.set('user', name);
-  history.replaceState({}, '', `?user=${name}&range=${$('range').value}&limit=${$('limit').value}&theme=${$('theme').value}`);
+  history.replaceState({}, '', `?user=${name}&by=${$('by').value}&range=${$('range').value}`
+    + `&limit=${$('limit').value}&theme=${$('theme').value}`);
 }
 
 $('f').onsubmit = e => { e.preventDefault(); render(); };
 // Re-render on option changes, but only once a username is on screen — no wasted API calls.
-for (const id of ['range', 'limit', 'theme']) $(id).onchange = () => current && render();
+for (const id of ['by', 'range', 'limit', 'theme']) $(id).onchange = () => current && render();
 
 document.querySelectorAll('.tab').forEach(tab => {
   tab.onclick = () => {
@@ -187,7 +198,7 @@ $('copy').onclick = async () => {
 
 // Restore from the URL first, then from the last visit.
 const q = new URLSearchParams(location.search);
-for (const id of ['range', 'limit', 'theme']) if (q.get(id)) $(id).value = q.get(id);
+for (const id of ['by', 'range', 'limit', 'theme']) if (q.get(id)) $(id).value = q.get(id);
 $('user').value = q.get('user') || store.get('user') || '';
 if ($('user').value) render();
 </script>
