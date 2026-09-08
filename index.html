@@ -44,6 +44,9 @@
   button.primary { background: var(--accent); border-color: transparent; color: #fff; }
   button:hover { filter: brightness(1.06); }
 
+  .check { grid-auto-flow: column; justify-content: start; align-items: center; gap: .5rem; }
+  .check label { text-transform: none; letter-spacing: 0; font-size: .85rem; font-weight: 400; color: var(--ink); }
+  .check input { width: auto; accent-color: var(--accent); }
   .out { margin-top: 1.25rem; padding: 1.1rem; display: grid; gap: .9rem; }
   .card-slot { display: grid; place-items: center; min-height: 240px; }
   .card-slot img { max-width: 100%; border-radius: 8px; transition: opacity .15s; }
@@ -106,6 +109,10 @@
         <label for="theme">Theme</label>
         <select id="theme"><option value="light">Light</option><option value="dark">Dark</option></select>
       </div>
+      <div class="field wide check">
+        <input type="checkbox" id="private">
+        <label for="private">Include private repos as one slice</label>
+      </div>
       <div class="field wide"><button class="primary" type="submit">Render chart</button></div>
     </form>
   </div>
@@ -140,7 +147,7 @@ const store = {
 
 const buildUrl = name =>
   `${location.origin}/api/pie?username=${name}&by=${$('by').value}&range=${$('range').value}` +
-  `&limit=${$('limit').value}&theme=${$('theme').value}`;
+  `&limit=${$('limit').value}&theme=${$('theme').value}` + ($('private').checked ? '&private=true' : '');
 
 const snippetFor = (name, url) => fmt === 'md'
   ? `[![PRs by repo](${url})](https://github.com/${name})`
@@ -167,12 +174,15 @@ function render() {
   $('snippet').hidden = false;
   store.set('user', name);
   history.replaceState({}, '', `?user=${name}&by=${$('by').value}&range=${$('range').value}`
-    + `&limit=${$('limit').value}&theme=${$('theme').value}`);
+    + `&limit=${$('limit').value}&theme=${$('theme').value}${$('private').checked ? '&private=true' : ''}`);
 }
 
 $('f').onsubmit = e => { e.preventDefault(); render(); };
 // Re-render on option changes, but only once a username is on screen — no wasted API calls.
-for (const id of ['by', 'range', 'limit', 'theme']) $(id).onchange = () => current && render();
+for (const id of ['by', 'range', 'limit', 'theme', 'private']) $(id).onchange = () => current && render();
+// GitHub reports private work as one untyped total, so it only lines up with "Everything".
+$('private').onchange = () => { if ($('private').checked) $('by').value = 'all'; current && render(); };
+$('by').onchange = () => { if ($('by').value !== 'all') $('private').checked = false; current && render(); };
 
 document.querySelectorAll('.tab').forEach(tab => {
   tab.onclick = () => {
@@ -199,6 +209,7 @@ $('copy').onclick = async () => {
 // Restore from the URL first, then from the last visit.
 const q = new URLSearchParams(location.search);
 for (const id of ['by', 'range', 'limit', 'theme']) if (q.get(id)) $(id).value = q.get(id);
+$('private').checked = /^(1|true|yes)$/i.test(q.get('private') || '');
 $('user').value = q.get('user') || store.get('user') || '';
 if ($('user').value) render();
 </script>

@@ -6,6 +6,7 @@ const THEMES = {
   light: { bg: '#ffffff', border: '#d0d7de', text: '#1f2328', dim: '#656d76' },
   dark:  { bg: '#0d1117', border: '#30363d', text: '#e6edf3', dim: '#8b949e' },
 };
+const PRIVATE_COLOR = '#546e7a';
 const KINDS = {
   commit: 'commitContributionsByRepository',
   pr: 'pullRequestContributionsByRepository',
@@ -66,7 +67,7 @@ function windows(from) {
   return out;
 }
 
-async function contributionsByRepo(user, since, kinds) {
+async function contributionsByRepo(user, since, kinds, wantPrivate) {
   let from = since;
   if (!from) {
     const { user: u } = await gql('query($login:String!){ user(login:$login){ createdAt } }', { login: user });
@@ -74,7 +75,10 @@ async function contributionsByRepo(user, since, kinds) {
     from = new Date(u.createdAt);
   }
   const fields = kinds.map(k =>
-    `${KINDS[k]}(maxRepositories:100){ repository{ nameWithOwner isPrivate } contributions{ totalCount } }`).join(' ');
+    `${KINDS[k]}(maxRepositories:100){ repository{ nameWithOwner isPrivate } contributions{ totalCount } }`)
+    // One lump sum for everything done in private repos — GitHub exposes no repo names or
+    // per-type split here, and returns 0 unless the user opted into showing private contributions.
+    .concat(wantPrivate ? ['restrictedContributionsCount'] : []).join(' ');
   const query = `query($login:String!,$from:DateTime!,$to:DateTime!){
     user(login:$login){ contributionsCollection(from:$from,to:$to){ ${fields} } } }`;
 
@@ -84,17 +88,20 @@ async function contributionsByRepo(user, since, kinds) {
     gql(query, { login: user, from: f, to: t })));
 
   const counts = new Map();
+  let restricted = 0;
   for (const r of results) {
     if (!r.user) throw new Error(`No such user: ${user}`);
+    const c = r.user.contributionsCollection;
+    restricted += c.restrictedContributionsCount || 0;
     for (const k of kinds) {
-      for (const node of r.user.contributionsCollection[KINDS[k]]) {
+      for (const node of c[KINDS[k]]) {
         if (node.repository.isPrivate) continue; // never name a private repo on a public card
         const name = node.repository.nameWithOwner;
         counts.set(name, (counts.get(name) || 0) + node.contributions.totalCount);
       }
     }
   }
-  return [...counts].sort((a, b) => b[1] - a[1]);
+  return { rows: [...counts].sort((a, b) => b[1] - a[1]), restricted };
 }
 
 function slice(from, to, color, cy) {
@@ -148,6 +155,7 @@ module.exports = async (req, res) => {
   const t = THEMES[searchParams.get('theme')] || THEMES.light;
   const range = parseRange(searchParams.get('range'));
   const mode = MODES[(searchParams.get('by') || 'pr').toLowerCase()];
+  const wantPrivate = /^(1|true|yes)$/i.test(searchParams.get('private') || '');
   res.setHeader('content-type', 'image/svg+xml; charset=utf-8');
 
   if (!/^[A-Za-z0-9](?:[A-Za-z0-9-]{0,38})$/.test(user)) {
@@ -158,6 +166,11 @@ module.exports = async (req, res) => {
     res.setHeader('cache-control', 'no-cache');
     return res.end(errorCard(`by must be one of ${Object.keys(MODES).join(', ')}`, t));
   }
+  if (wantPrivate && mode !== MODES.all) {
+    res.setHeader('cache-control', 'no-cache');
+    // GitHub lumps every private contribution type into one number, so it only lines up with by=all.
+    return res.end(errorCard('private=true needs by=all', t));
+  }
   if (!process.env.GITHUB_TOKEN) {
     res.setHeader('cache-control', 'no-cache');
     return res.end(errorCard('This deploy is missing GITHUB_TOKEN', t));
@@ -167,12 +180,13 @@ module.exports = async (req, res) => {
     return res.end(errorCard('range must look like 30d, 6m, 2y or all', t));
   }
   try {
-    const all = await contributionsByRepo(user, range.since, mode.kinds);
-    if (!all.length) throw new Error(`No public ${mode.label} for ${user} in the ${range.label}`);
-    const total = all.reduce((s, [, n]) => s + n, 0);
-    const top = all.slice(0, limit);
-    const rest = all.slice(limit);
+    const { rows, restricted } = await contributionsByRepo(user, range.since, mode.kinds, wantPrivate);
+    if (!rows.length && !restricted) throw new Error(`No public ${mode.label} for ${user} in the ${range.label}`);
+    const total = rows.reduce((s, [, n]) => s + n, 0) + restricted;
+    const top = rows.slice(0, limit);
+    const rest = rows.slice(limit);
     if (rest.length) top.push([`${rest.length} more repos`, rest.reduce((s, [, n]) => s + n, 0), t.dim]);
+    if (restricted) top.push(['private repos', restricted, PRIVATE_COLOR]);
     const caption = `${total} ${mode.label} · ${range.label}`;
     res.setHeader('cache-control', 'public, max-age=7200, s-maxage=7200');
     res.end(chart(top, total, caption, searchParams.get('title') || `${user}'s ${mode.label} by repo`, t));

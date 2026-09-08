@@ -22,6 +22,7 @@ const inside = svg => {
     ['/api/pie?username=not a user', /Pass \?username=/],
     ['/api/pie?username=octocat&by=merges', /by must be one of/],
     ['/api/pie?username=octocat&range=lastweek', /range must look like/],
+    ['/api/pie?username=octocat&by=pr&private=true', /private=true needs by=all/],
   ]) assert.match((await call(url)).body, expected, `${url} should render an error card`);
 
   const pr = await call('/api/pie?username=YuDavidCao&limit=4');
@@ -34,15 +35,28 @@ const inside = svg => {
   assert.ok(Math.abs(pcts - 100) < 0.5, `slices must cover the pie, got ${pcts}%`);
 
   // by= picks a different metric; all is the sum of its parts
-  const [commit, issue, review, all] = await Promise.all(['commit', 'issue', 'review', 'all']
+  const [commit, issue, review, allBody] = await Promise.all(['commit', 'issue', 'review', 'all']
     .map(by => call(`/api/pie?username=YuDavidCao&by=${by}`).then(r => r.body)));
+  const all = count(allBody);
   assert.match(commit, /commits · last year</);
-  assert.strictEqual(count(all), count(pr.body) + count(commit) + count(issue) + (count(review) || 0),
+  assert.strictEqual(all, count(pr.body) + count(commit) + count(issue) + (count(review) || 0),
     'all must equal pr + commit + issue + review');
 
   // a wider window can only find more
   const allTime = await call('/api/pie?username=YuDavidCao&range=all');
   assert.ok(count(allTime.body) >= count(pr.body), 'all time must be >= last year');
+
+  // private=true adds one lump slice on top of the public repos, and still closes the pie
+  const [publicOnly, withPriv] = await Promise.all([
+    call('/api/pie?username=anuraghazra&by=all&limit=6').then(r => r.body),
+    call('/api/pie?username=anuraghazra&by=all&private=true&limit=6').then(r => r.body),
+  ]);
+  assert.match(withPriv, />private repos</, 'private slice must be labelled');
+  assert.ok(count(withPriv) > count(publicOnly),
+    `private total (${count(withPriv)}) must exceed the same user's public-only total (${count(publicOnly)})`);
+  const privPct = [...withPriv.matchAll(/>([\d.]+)%</g)].map(m => +m[1]).reduce((a, b) => a + b, 0);
+  assert.ok(Math.abs(privPct - 100) < 0.5, `private pie must cover 100%, got ${privPct}%`);
+  inside(withPriv);
 
   // private repos must never reach a public card
   const tokened = await call('/api/pie?username=YuDavidCao&by=all&range=all&limit=20');
@@ -55,6 +69,6 @@ const inside = svg => {
   assert.strictEqual(new Set(fills).size, fills.length, 'two slices share a colour');
   inside(big.body);
 
-  console.log(`ok — ${count(pr.body)} PRs / ${count(commit)} commits / ${count(all)} all, `
+  console.log(`ok — ${count(pr.body)} PRs / ${count(commit)} commits / ${all} all, `
     + `${fills.length} distinct slices -> $TMPDIR/pr-pie.svg`);
 })();
