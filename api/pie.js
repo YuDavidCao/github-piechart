@@ -13,6 +13,18 @@ const KINDS = {
   issue: 'issueContributionsByRepository',
   review: 'pullRequestReviewContributionsByRepository',
 };
+const REPO_TOTALS = {
+  commit: 'totalRepositoriesWithContributedCommits',
+  pr: 'totalRepositoriesWithContributedPullRequests',
+  issue: 'totalRepositoriesWithContributedIssues',
+  review: 'totalRepositoriesWithContributedPullRequestReviews',
+};
+const CONTRIBUTION_TOTALS = {
+  commit: 'totalCommitContributions',
+  pr: 'totalPullRequestContributions',
+  issue: 'totalIssueContributions',
+  review: 'totalPullRequestReviewContributions',
+};
 const MODES = {
   pr: { kinds: ['pr'], label: 'PRs' },
   commit: { kinds: ['commit'], label: 'commits' },
@@ -22,10 +34,29 @@ const MODES = {
 };
 const W = 480, R = 70, CX = 110, CY = 135, LEGEND_X = 215, ROW_H = 24;
 
-const esc = s => String(s).replace(/[<>&"]/g, c => ({ '<': '&lt;', '>': '&gt;', '&': '&amp;', '"': '&quot;' }[c]));
+// XML 1.0 forbids control characters and unpaired surrogates, even inside text nodes.
+const esc = s => String(s)
+  .replace(/[^\u0009\u000A\u000D\u0020-\uD7FF\uE000-\uFFFD\u{10000}-\u{10FFFF}]/gu, '')
+  .replace(/[<>&"]/g, c => ({ '<': '&lt;', '>': '&gt;', '&': '&amp;', '"': '&quot;' }[c]));
 const clip = (s, n) => (s.length > n ? s.slice(0, n - 1) + '…' : s);
 
 const DAY = 86400000;
+const MAX_REQUESTS = 64, CONCURRENCY = 4;
+const REQUEST_TIMEOUT_MS = 8000, TOTAL_TIMEOUT_MS = 25000;
+
+function startOfDay(date) {
+  const day = new Date(date);
+  day.setUTCHours(0, 0, 0, 0);
+  return day;
+}
+
+function subtractMonths(date, months) {
+  const day = date.getUTCDate();
+  date.setUTCDate(1);
+  date.setUTCMonth(date.getUTCMonth() - months);
+  const lastDay = new Date(Date.UTC(date.getUTCFullYear(), date.getUTCMonth() + 1, 0)).getUTCDate();
+  date.setUTCDate(Math.min(day, lastDay));
+}
 
 // range=1y (default) | 6m | 90d | all
 function parseRange(raw) {
@@ -33,21 +64,22 @@ function parseRange(raw) {
   if (v === 'all') return { since: null, label: 'all time' };
   const m = /^(\d{1,3})([dmy])$/.exec(v);
   if (!m || !+m[1]) return null;
-  const n = +m[1], since = new Date();
+  const n = +m[1], since = startOfDay(new Date());
   if (m[2] === 'd') since.setUTCDate(since.getUTCDate() - n);
-  if (m[2] === 'm') since.setUTCMonth(since.getUTCMonth() - n);
-  if (m[2] === 'y') since.setUTCFullYear(since.getUTCFullYear() - n);
+  if (m[2] === 'm') subtractMonths(since, n);
+  if (m[2] === 'y') subtractMonths(since, n * 12);
   const unit = { d: 'day', m: 'month', y: 'year' }[m[2]];
   return { since, label: `last ${n === 1 ? unit : `${n} ${unit}s`}` };
 }
 
 const auth = () => ({ authorization: `Bearer ${process.env.GITHUB_TOKEN}` });
 
-async function gql(query, variables) {
+async function gql(query, variables, signal) {
   const res = await fetch('https://api.github.com/graphql', {
     method: 'POST',
     headers: { 'content-type': 'application/json', 'user-agent': 'pr-pie', ...auth() },
     body: JSON.stringify({ query, variables }),
+    signal,
   });
   if (res.status === 401) throw new Error('GITHUB_TOKEN rejected by GitHub');
   if (!res.ok) throw new Error(`GitHub GraphQL ${res.status}`);
@@ -56,52 +88,112 @@ async function gql(query, variables) {
   return data;
 }
 
-// contributionsCollection accepts at most a 1-year window, so walk the range in 364-day chunks.
-function windows(from) {
-  const now = new Date(), out = [];
-  for (let start = from; start < now; ) {
-    const end = new Date(Math.min(start.getTime() + 364 * DAY, now.getTime()));
-    out.push([start.toISOString(), end.toISOString()]);
-    start = new Date(end.getTime() + 1);
+function githubClient() {
+  const controller = new AbortController();
+  const deadline = setTimeout(() => controller.abort(new Error('GitHub request timed out; try a shorter range')), TOTAL_TIMEOUT_MS);
+  const waiting = [];
+  let requests = 0, active = 0;
+  return {
+    async query(query, variables) {
+      if (requests >= MAX_REQUESTS) throw new Error('Too much activity to fetch completely; try a shorter range');
+      requests++;
+      if (active < CONCURRENCY) active++;
+      else await new Promise(resolve => waiting.push(resolve));
+      try {
+        controller.signal.throwIfAborted();
+        const signal = AbortSignal.any([controller.signal, AbortSignal.timeout(REQUEST_TIMEOUT_MS)]);
+        try {
+          return await gql(query, variables, signal);
+        } catch (error) {
+          if (signal.aborted) throw new Error('GitHub request timed out; try a shorter range');
+          throw error;
+        }
+      } finally {
+        const next = waiting.shift();
+        if (next) next();
+        else active--;
+      }
+    },
+    close() {
+      clearTimeout(deadline);
+      controller.abort();
+    },
+  };
+}
+
+// GitHub includes whole calendar days for public contributions. Never share a date
+// between windows; 364 calendar days also stays below its one-year query limit.
+function windows(from, now) {
+  const out = [];
+  for (let start = startOfDay(from); start <= now; ) {
+    const next = new Date(start.getTime() + 364 * DAY);
+    const end = new Date(Math.min(next.getTime() - 1, now.getTime()));
+    out.push([start, end]);
+    start = next;
   }
   return out;
 }
 
 async function contributionsByRepo(user, since, kinds, wantPrivate) {
-  let from = since;
-  if (!from) {
-    const { user: u } = await gql('query($login:String!){ user(login:$login){ createdAt } }', { login: user });
-    if (!u) throw new Error(`No such user: ${user}`);
-    from = new Date(u.createdAt);
-  }
-  const fields = kinds.map(k =>
-    `${KINDS[k]}(maxRepositories:100){ repository{ nameWithOwner isPrivate } contributions{ totalCount } }`)
-    // One lump sum for everything done in private repos — GitHub exposes no repo names or
-    // per-type split here, and returns 0 unless the user opted into showing private contributions.
-    .concat(wantPrivate ? ['restrictedContributionsCount'] : []).join(' ');
-  const query = `query($login:String!,$from:DateTime!,$to:DateTime!){
-    user(login:$login){ contributionsCollection(from:$from,to:$to){ ${fields} } } }`;
-
-  // One request per window, in parallel: all-time on an old account is ~9 windows and each
-  // costs a single rate-limit point, but serialising them runs into the function timeout.
-  const results = await Promise.all(windows(from).map(([f, t]) =>
-    gql(query, { login: user, from: f, to: t })));
-
+  const client = githubClient(), now = new Date();
   const counts = new Map();
   let restricted = 0;
-  for (const r of results) {
+
+  async function collect(from, to, selectedKinds, includePrivate) {
+    const fields = selectedKinds.map(k =>
+      `${REPO_TOTALS[k]} ${CONTRIBUTION_TOTALS[k]}
+       ${KINDS[k]}(maxRepositories:100){ repository{ nameWithOwner isPrivate } contributions{ totalCount } }`)
+      .concat(includePrivate ? ['restrictedContributionsCount'] : []).join(' ');
+    const query = `query($login:String!,$from:DateTime!,$to:DateTime!){
+      user(login:$login){ contributionsCollection(from:$from,to:$to){ ${fields} } } }`;
+    const r = await client.query(query, { login: user, from: from.toISOString(), to: to.toISOString() });
     if (!r.user) throw new Error(`No such user: ${user}`);
     const c = r.user.contributionsCollection;
-    restricted += c.restrictedContributionsCount || 0;
-    for (const k of kinds) {
+    if (includePrivate) restricted += c.restrictedContributionsCount || 0;
+    const incomplete = [], totals = {};
+    for (const k of selectedKinds) {
+      if (c[KINDS[k]].length < c[REPO_TOTALS[k]]) {
+        incomplete.push(k);
+        continue;
+      }
+      totals[k] = 0;
       for (const node of c[KINDS[k]]) {
+        totals[k] += node.contributions.totalCount;
         if (node.repository.isPrivate) continue; // never name a private repo on a public card
         const name = node.repository.nameWithOwner;
         counts.set(name, (counts.get(name) || 0) + node.contributions.totalCount);
       }
     }
+    if (incomplete.length) {
+      const days = Math.round((startOfDay(to) - from) / DAY) + 1;
+      if (days <= 1) throw new Error('Too many repos in one day for a complete chart');
+      const middle = new Date(from.getTime() + Math.floor(days / 2) * DAY);
+      // Only retry truncated kinds. Complete kinds and private totals were already counted.
+      const halves = await Promise.all([
+        collect(from, new Date(middle.getTime() - 1), incomplete, false),
+        collect(middle, to, incomplete, false),
+      ]);
+      for (const k of incomplete) {
+        totals[k] = halves[0][k] + halves[1][k];
+        // Some contribution types (e.g. repeated reviews of one PR) are not additive.
+        if (totals[k] !== c[CONTRIBUTION_TOTALS[k]]) {
+          throw new Error('GitHub totals differ across date ranges; try a shorter range');
+        }
+      }
+    }
+    return totals;
   }
-  return { rows: [...counts].sort((a, b) => b[1] - a[1]), restricted };
+
+  try {
+    const { user: u } = await client.query('query($login:String!){ user(login:$login){ createdAt } }', { login: user });
+    if (!u) throw new Error(`No such user: ${user}`);
+    const createdAt = new Date(u.createdAt);
+    const from = since && since > createdAt ? since : createdAt;
+    await Promise.all(windows(from, now).map(([f, t]) => collect(f, t, kinds, wantPrivate)));
+    return { rows: [...counts].sort((a, b) => b[1] - a[1]), restricted };
+  } finally {
+    client.close();
+  }
 }
 
 function slice(from, to, color, cy) {
@@ -152,9 +244,11 @@ module.exports = async (req, res) => {
   const { searchParams } = new URL(req.url, 'http://x');
   const user = (searchParams.get('username') || searchParams.get('user') || '').trim();
   const limit = Math.min(Math.max(parseInt(searchParams.get('limit'), 10) || 6, 1), 20);
-  const t = THEMES[searchParams.get('theme')] || THEMES.light;
+  const theme = searchParams.get('theme');
+  const t = Object.hasOwn(THEMES, theme) ? THEMES[theme] : THEMES.light;
   const range = parseRange(searchParams.get('range'));
-  const mode = MODES[(searchParams.get('by') || 'pr').toLowerCase()];
+  const by = (searchParams.get('by') || 'pr').toLowerCase();
+  const mode = Object.hasOwn(MODES, by) ? MODES[by] : null;
   const wantPrivate = /^(1|true|yes)$/i.test(searchParams.get('private') || '');
   res.setHeader('content-type', 'image/svg+xml; charset=utf-8');
 

@@ -54,6 +54,7 @@
   .empty { color: var(--dim); font-size: .9rem; text-align: center; }
 
   .snippet { display: grid; gap: .5rem; }
+  .snippet[hidden] { display: none; }
   .snippet-head { display: flex; align-items: center; gap: .4rem; }
   .tabs { display: flex; gap: .25rem; margin-right: auto; }
   .tab { padding: .25rem .6rem; font-size: .82rem; font-weight: 500; border-radius: 999px; border: 1px solid transparent; background: none; color: var(--dim); }
@@ -138,7 +139,7 @@
 <script>
 const $ = id => document.getElementById(id);
 const img = Object.assign(new Image(), { alt: 'PRs by repo chart' });
-let fmt = 'md', current = '';
+let fmt = 'md', current = null;
 
 const store = {
   get: k => { try { return localStorage.getItem(k); } catch { return null; } },
@@ -159,7 +160,8 @@ function render() {
     $('status').textContent = 'That is not a valid GitHub username.';
     return;
   }
-  const url = current = buildUrl(name);
+  const url = buildUrl(name);
+  current = { name, url };
   $('status').textContent = '';
   $('slot').classList.add('busy');
   if (!img.parentNode) $('slot').replaceChildren(img);
@@ -188,7 +190,7 @@ document.querySelectorAll('.tab').forEach(tab => {
   tab.onclick = () => {
     fmt = tab.dataset.fmt;
     document.querySelectorAll('.tab').forEach(t => t.setAttribute('aria-selected', String(t === tab)));
-    if (current) $('snip').textContent = snippetFor($('user').value.trim(), current);
+    if (current) $('snip').textContent = snippetFor(current.name, current.url);
   };
 });
 
