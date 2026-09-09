@@ -31,7 +31,7 @@ const inside = svg => {
   require('fs').writeFileSync(require('path').join(require('os').tmpdir(), 'pr-pie.svg'), pr.body);
   assert.match(pr.headers['content-type'], /image\/svg/);
   assert.match(pr.body, /<\/svg>$/, 'must be a closed SVG');
-  assert.match(pr.body, /PRs · last year</, 'defaults to PRs over the last year');
+  assert.match(pr.body, /contributions · last year</, 'defaults to all contributions over the last year');
   inside(pr.body);
   const pcts = [...pr.body.matchAll(/>([\d.]+)%</g)].map(m => +m[1]).reduce((a, b) => a + b, 0);
   assert.ok(Math.abs(pcts - 100) < 0.5, `slices must cover the pie, got ${pcts}%`);

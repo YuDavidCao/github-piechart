@@ -2,7 +2,7 @@
 <html lang="en">
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
-<title>PRs by repo</title>
+<title>Contributions by repo</title>
 <style>
   :root {
     --accent: hsl(200, 68%, 45%);
@@ -70,7 +70,7 @@
 </style>
 
 <main>
-  <h1>PRs by repo</h1>
+  <h1>Contributions by repo</h1>
   <p class="lede">A pie chart of a GitHub user's contributions, grouped by repo — as an image you can drop in a README.</p>
 
   <div class="panel">
@@ -83,11 +83,11 @@
       <div class="field">
         <label for="by">Count</label>
         <select id="by">
-          <option value="pr" selected>Pull requests</option>
+          <option value="pr">Pull requests</option>
           <option value="commit">Commits</option>
           <option value="issue">Issues</option>
           <option value="review">Reviews</option>
-          <option value="all">Everything</option>
+          <option value="all" selected>Everything</option>
         </select>
       </div>
       <div class="field">
@@ -138,7 +138,7 @@
 
 <script>
 const $ = id => document.getElementById(id);
-const img = Object.assign(new Image(), { alt: 'PRs by repo chart' });
+const img = Object.assign(new Image(), { alt: 'Contributions by repo chart' });
 let fmt = 'md', current = null;
 
 const store = {
@@ -155,8 +155,8 @@ const buildAppUrl = name =>
   `&limit=${$('limit').value}&theme=${$('theme').value}` + ($('private').checked ? '&private=true' : '');
 
 const snippetFor = (name, url) => fmt === 'md'
-  ? `[![PRs by repo](${url})](${buildAppUrl(name)})`
-  : `<a href="${buildAppUrl(name)}"><img src="${url}" alt="PRs by repo"></a>`;
+  ? `[![Contributions by repo](${url})](${buildAppUrl(name)})`
+  : `<a href="${buildAppUrl(name)}"><img src="${url}" alt="Contributions by repo"></a>`;
 
 function render() {
   const name = $('user').value.trim();

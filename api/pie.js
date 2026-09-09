@@ -1,4 +1,4 @@
-// GET /api/pie?username=octocat[&limit=6][&theme=dark][&range=1y][&title=...] -> SVG pie of PRs per repo.
+// GET /api/pie?username=octocat[&limit=6][&theme=dark][&range=1y][&title=...] -> SVG pie of contributions per repo.
 // Golden-angle hue rotation: any number of slices, adjacent ones always far apart in hue.
 // Lightness alternates so colours that eventually wrap near the same hue still separate.
 const sliceColor = i => `hsl(${((200 + i * 137.508) % 360).toFixed(1)}, 68%, ${i % 2 ? 45 : 58}%)`;
@@ -213,7 +213,7 @@ ${body}
 }
 
 function errorCard(msg, t) {
-  return card(`<text x="20" y="40" font-size="15" font-weight="600" fill="${t.text}">PRs by repo</text>
+  return card(`<text x="20" y="40" font-size="15" font-weight="600" fill="${t.text}">Contributions by repo</text>
 <text x="20" y="66" font-size="13" fill="${t.dim}">${esc(msg)}</text>`, 90, t);
 }
 
@@ -247,7 +247,7 @@ module.exports = async (req, res) => {
   const theme = searchParams.get('theme');
   const t = Object.hasOwn(THEMES, theme) ? THEMES[theme] : THEMES.light;
   const range = parseRange(searchParams.get('range'));
-  const by = (searchParams.get('by') || 'pr').toLowerCase();
+  const by = (searchParams.get('by') || 'all').toLowerCase();
   const mode = Object.hasOwn(MODES, by) ? MODES[by] : null;
   const wantPrivate = /^(1|true|yes)$/i.test(searchParams.get('private') || '');
   res.setHeader('content-type', 'image/svg+xml; charset=utf-8');

@@ -1,14 +1,14 @@
-# PR Pie
+# Github Pie Chart
 
 A pie chart of anyone's GitHub contributions, grouped by repo, as an SVG you can embed in a
 README. No build step, no dependencies, one serverless function.
 
 <p align="center">
-  <img src="https://github-piechart.vercel.app/api/pie?username=YuDavidCao&range=1y" alt="Example card: PRs by repo">
+  <img src="https://github-piechart.vercel.app/api/pie?username=YuDavidCao&range=1y" alt="Example card: contributions by repo">
 </p>
 
 ```markdown
-[![PRs by repo](https://github-piechart.vercel.app/api/pie?username=octocat&range=1y)](https://github-piechart.vercel.app/?user=octocat&by=pr&range=1y&limit=6&theme=light)
+[![Contributions by repo](https://github-piechart.vercel.app/api/pie?username=octocat&range=1y)](https://github-piechart.vercel.app/?user=octocat&range=1y&limit=6&theme=light)
 ```
 
 Point it at your own deployment rather than the demo above — see [Deploy your own](#deploy-your-own).
@@ -19,7 +19,7 @@ Point it at your own deployment rather than the demo above — see [Deploy your 
 | Param | Default | Notes |
 |---|---|---|
 | `username` | — | required |
-| `by` | `pr` | what to count: `pr`, `commit`, `issue`, `review`, `all` |
+| `by` | `all` | what to count: `pr`, `commit`, `issue`, `review`, `all` |
 | `range` | `1y` | window to count over: `30d`, `6m`, `2y`, `all` |
 | `limit` | `6` | top N repos, 1–20; the rest collapse into one "N more repos" slice |
 | `theme` | `light` | `light` or `dark` |

@@ -189,7 +189,7 @@ test('adaptive queries stop at the per-card request budget', async () => {
       } } });
     },
   });
-  const { body } = await app.call('range=999y');
+  const { body } = await app.call('range=999y&by=pr');
   assert.match(body, /Too much activity to fetch completely/);
   assert.ok(app.requests.length <= 64);
 });
@@ -276,14 +276,14 @@ test('private repository names are excluded in every mode on successful charts',
 
 test('validation, missing users, empty activity and upstream failures render errors', async () => {
   for (const [query, expected] of [['username=not+a+user', /Pass \?username=/], ['by=merges', /by must/],
-    ['range=0m', /range must/], ['range=lastweek', /range must/], ['private=true', /needs by=all/]]) {
+    ['range=0m', /range must/], ['range=lastweek', /range must/], ['private=true&by=pr', /needs by=all/]]) {
     const app = harness();
     assert.match((await app.call(query)).body, expected);
     assert.equal(app.requests.length, 0);
   }
   assert.match((await harness({ token: '' }).call()).body, /missing GITHUB_TOKEN/);
   assert.match((await harness({ createdAt: null }).call()).body, /No such user/);
-  assert.match((await harness().call()).body, /No public PRs/);
+  assert.match((await harness().call()).body, /No public contributions/);
   for (const status of [401, 403, 429, 500]) {
     const app = harness({ respond: () => ({ ok: false, status }) });
     assert.match((await app.call()).body, status === 401 ? /TOKEN rejected/ : new RegExp(`GraphQL ${status}`));
@@ -299,7 +299,7 @@ test('changing snippet format keeps the last rendered username and URL together'
     elements[id] = { value: '', checked: false, hidden: true, textContent: '', classList: { add() {}, remove() {} },
       replaceChildren(child) { child.parentNode = this; } };
   }
-  Object.assign(elements.by, { value: 'pr' });
+  Object.assign(elements.by, { value: 'all' });
   Object.assign(elements.range, { value: '1y' });
   Object.assign(elements.limit, { value: '6' });
   Object.assign(elements.theme, { value: 'light' });
@@ -317,10 +317,10 @@ test('changing snippet format keeps the last rendered username and URL together'
   for (const edited of ['someone-else', 'invalid user <text>']) {
     elements.user.value = edited;
     tabs[1].onclick();
-    assert.match(elements.snip.textContent, /href="https:\/\/example\.test\/\?user=octocat&by=pr&range=1y&limit=6&theme=light"/);
+    assert.match(elements.snip.textContent, /href="https:\/\/example\.test\/\?user=octocat&by=all&range=1y&limit=6&theme=light"/);
     assert.match(elements.snip.textContent, /username=octocat&/);
     assert.ok(!elements.snip.textContent.includes(edited));
     tabs[0].onclick();
-    assert.ok(elements.snip.textContent.endsWith('](https://example.test/?user=octocat&by=pr&range=1y&limit=6&theme=light)'));
+    assert.ok(elements.snip.textContent.endsWith('](https://example.test/?user=octocat&by=all&range=1y&limit=6&theme=light)'));
   }
 });
