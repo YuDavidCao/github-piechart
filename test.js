@@ -317,10 +317,10 @@ test('changing snippet format keeps the last rendered username and URL together'
   for (const edited of ['someone-else', 'invalid user <text>']) {
     elements.user.value = edited;
     tabs[1].onclick();
-    assert.match(elements.snip.textContent, /href="https:\/\/github.com\/octocat"/);
+    assert.match(elements.snip.textContent, /href="https:\/\/example\.test\/\?user=octocat&by=pr&range=1y&limit=6&theme=light"/);
     assert.match(elements.snip.textContent, /username=octocat&/);
     assert.ok(!elements.snip.textContent.includes(edited));
     tabs[0].onclick();
-    assert.ok(elements.snip.textContent.endsWith('](https://github.com/octocat)'));
+    assert.ok(elements.snip.textContent.endsWith('](https://example.test/?user=octocat&by=pr&range=1y&limit=6&theme=light)'));
   }
 });

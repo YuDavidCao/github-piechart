@@ -150,9 +150,13 @@ const buildUrl = name =>
   `${location.origin}/api/pie?username=${name}&by=${$('by').value}&range=${$('range').value}` +
   `&limit=${$('limit').value}&theme=${$('theme').value}` + ($('private').checked ? '&private=true' : '');
 
+const buildAppUrl = name =>
+  `${location.origin}/?user=${name}&by=${$('by').value}&range=${$('range').value}` +
+  `&limit=${$('limit').value}&theme=${$('theme').value}` + ($('private').checked ? '&private=true' : '');
+
 const snippetFor = (name, url) => fmt === 'md'
-  ? `[![PRs by repo](${url})](https://github.com/${name})`
-  : `<a href="https://github.com/${name}"><img src="${url}" alt="PRs by repo"></a>`;
+  ? `[![PRs by repo](${url})](${buildAppUrl(name)})`
+  : `<a href="${buildAppUrl(name)}"><img src="${url}" alt="PRs by repo"></a>`;
 
 function render() {
   const name = $('user').value.trim();
@@ -175,8 +179,7 @@ function render() {
   $('snip').textContent = snippetFor(name, url);
   $('snippet').hidden = false;
   store.set('user', name);
-  history.replaceState({}, '', `?user=${name}&by=${$('by').value}&range=${$('range').value}`
-    + `&limit=${$('limit').value}&theme=${$('theme').value}${$('private').checked ? '&private=true' : ''}`);
+  history.replaceState({}, '', buildAppUrl(name).slice(location.origin.length));
 }
 
 $('f').onsubmit = e => { e.preventDefault(); render(); };

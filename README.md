@@ -8,7 +8,7 @@ README. No build step, no dependencies, one serverless function.
 </p>
 
 ```markdown
-[![PRs by repo](https://github-piechart.vercel.app/api/pie?username=octocat&range=1y)](https://github.com/octocat)
+[![PRs by repo](https://github-piechart.vercel.app/api/pie?username=octocat&range=1y)](https://github-piechart.vercel.app/?user=octocat&by=pr&range=1y&limit=6&theme=light)
 ```
 
 Point it at your own deployment rather than the demo above — see [Deploy your own](#deploy-your-own).
